@@ -7,6 +7,7 @@ from django.contrib import messages
 from datetime import datetime,timezone
 from .schemas import *
 from django.db import transaction
+from ninja.errors import HttpError
 
 order_router = Router()
 
@@ -162,4 +163,59 @@ def add_coupon(request, code):
             order.save()
             messages.info(request, "Coupon added successfully.")
     return order
+
+@transaction.atomic
+@order_router.post("/add-address",response=AddressSchema,auth=AuthTokenBearer())
+def add_address(request,request_data: AddressReqestSchema):
+    address = Address.objects.create(**request_data.dict())
+    return address
             
+@transaction.atomic
+@order_router.post("/checkout", response=OrderSchema, auth=AuthTokenBearer())
+def check_out(request, address_id: int, address_type: str):
+    try:
+        order = Order.objects.get(user=request.user, ordered=False)
+        adr = Address.objects.get(id=address_id, user=request.user, address_type=address_type)
+        
+        if adr is None:
+            raise HttpError(status_code=400, detail="Please select a shipping address.")
+        
+        order.shipping_address = adr
+        order.ordered = True
+        order.save()
+
+        total_price = order.get_total()  # Assuming this method exists in Order model
+
+        return {
+            "id": order.id,
+            "user": order.user.id,
+            "items": [
+                {
+                    "id": item.id,
+                    "item": {
+                        "id": item.item.id,
+                        "title": item.item.title,
+                        "price": item.item.price,
+                        "discount_price": item.item.discount_price,
+                        "category": item.item.category,
+                        "label": item.item.label,
+                        "slug": item.item.slug,
+                        "description": item.item.description,
+                        "image": item.item.image.url,   
+                    },
+                    "quantity": item.quantity,
+                    "user": {
+                        "id": item.user.id,
+                        "username": item.user.username,
+                        "email": item.user.email,
+                        "full_name": item.user.full_name,
+                    },
+                    "ordered": item.ordered,
+                } for item in order.items.all()
+            ],
+            "ordered": order.ordered,
+            "ordered_date": order.ordered_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_price": total_price  # Add the total price to the response
+        }
+    except Exception as e:
+        raise HttpError(status_code=500, detail=str(e))  # Raising the error triggers rollback
