@@ -30,3 +30,16 @@ class OrderSchema(Schema):
     ordered: bool
     ordered_date: str
     total_price: float
+    
+class AddressReqestSchema(Schema):
+    user_id : int
+    street_address: str
+    apartment_address: str
+    country: str
+    zip: str
+    address_type: str
+    
+class AddressSchema(ModelSchema):
+    class Meta:
+        model = Address
+        fields = '__all__'
