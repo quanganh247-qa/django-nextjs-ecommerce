@@ -8,9 +8,11 @@ from datetime import datetime,timezone
 from .schemas import *
 from django.db import transaction
 from ninja.errors import HttpError
+import logging
+
+logger = logging.getLogger(__name__)
 
 order_router = Router()
-
 
 @transaction.atomic
 @order_router.get("/get-carts", response=List[OrderItemSchema], auth=AuthTokenBearer())
@@ -48,60 +50,67 @@ def get_cart(request):
 
     return carts_list
 
+
 @transaction.atomic
 @order_router.post("/add-to-cart", response=OrderSchema, auth=AuthTokenBearer())   
 def add_to_cart(request, slug: str):
-    item = get_object_or_404(Item, slug=slug)
-    order_item, created = OrderItem.objects.get_or_create(item=item, user=request.user, ordered=False)
-    order_qs = Order.objects.filter(user=request.user, ordered=False)
-    
-    if order_qs.exists():
-        order = order_qs[0]
-        if order.items.filter(item__slug=item.slug).exists():
-            order_item.quantity += 1
-            order_item.save()
+    try:
+        logger.info("user %s is adding item %s to cart", request.user, slug)
+        item = get_object_or_404(Item, slug=slug)
+        order_item, created = OrderItem.objects.get_or_create(item=item, user=request.user, ordered=False)
+        logger.info("order %s", order_item.user.username)
+        order_qs = Order.objects.filter(user=request.user, ordered=False)
+        
+        if order_qs.exists():
+            order = order_qs[0]
+            if order.items.filter(item__slug=item.slug).exists():
+                order_item.quantity += 1
+                order_item.save()
+            else:
+                order.items.add(order_item)
+                messages.info(request, "This item was added to your cart.")
+                
         else:
+            ordered_date = datetime.now(timezone.utc)  # Use datetime.now with timezone.utc
+            order = Order.objects.create(user=request.user, ordered_date=ordered_date)
             order.items.add(order_item)
             messages.info(request, "This item was added to your cart.")
-    else:
-        ordered_date = datetime.now(timezone.utc)  # Use datetime.now with timezone.utc
-        order = Order.objects.create(user=request.user, ordered_date=ordered_date)
-        order.items.add(order_item)
-        messages.info(request, "This item was added to your cart.")
-
-    # Construct the response
-    order_data = {
-        "id": order.id,
-        "user": order.user.id,
-        "items": [
-            {
-                "id": order_item.id,
-                "item": {
-                    "id": order_item.item.id,
-                    "title": order_item.item.title,
-                    "price": order_item.item.price,
-                    "discount_price": order_item.item.discount_price,
-                    "category": order_item.item.category,
-                    "label": order_item.item.label,
-                    "slug": order_item.item.slug,
-                    "description": order_item.item.description,
-                    "image": str(order_item.item.image.url),  # Ensure image is a string (URL)
-                },
-                "quantity": order_item.quantity,
-                "user": {
-                    "id": order_item.user.id,
-                    "username": order_item.user.username,
-                    "email": order_item.user.email,
-                    "full_name": order_item.user.full_name,
-                },
-                "ordered": order_item.ordered,
-            }
-        ],
-        "ordered": order.ordered,
-        "ordered_date": order.ordered_date.strftime("%Y-%m-%d %H:%M:%S"),
-        "total_price": order.get_total()
-    }
-
+    
+        # Construct the response
+        order_data = {
+            "id": order.id,
+            "user": order.user.id,
+            "items": [
+                {
+                    "id": order_item.id,
+                    "item": {
+                        "id": order_item.item.id,
+                        "title": order_item.item.title,
+                        "price": order_item.item.price,
+                        "discount_price": order_item.item.discount_price,
+                        "category": order_item.item.category,
+                        "label": order_item.item.label,
+                        "slug": order_item.item.slug,
+                        "description": order_item.item.description,
+                        "image": str(order_item.item.image.url),  # Ensure image is a string (URL)
+                    },
+                    "quantity": order_item.quantity,
+                    "user": {
+                        "id": order_item.user.id,
+                        "username": order_item.user.username,
+                        "email": order_item.user.email,
+                        "full_name": order_item.user.full_name,
+                    },
+                    "ordered": order_item.ordered,
+                }
+            ],
+            "ordered": order.ordered,
+            "ordered_date": order.ordered_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_price": order.get_total()
+        }
+    except Exception as e:
+            logger.error("Error adding item to cart: %s", e)
+            raise HttpError(status_code=500, detail="An error occurred while adding the item to the cart.")
     return order_data
 
 @transaction.atomic
@@ -135,6 +144,7 @@ def remove_single_item_from_cart(request,slug):
             if order_item.quantity>1:
                 order_item.quantity -= 1
                 order_item.save()
+                
             else:
                 order.items.remove(order_item)
                 order_item.delete()
@@ -181,8 +191,8 @@ def check_out(request, address_id: int, address_type: str):
             raise HttpError(status_code=400, detail="Please select a shipping address.")
         
         order.shipping_address = adr
-        order.ordered = True
-        order.save()
+        order.ordered = True        
+        order.save()            
 
         total_price = order.get_total()  # Assuming this method exists in Order model
 
@@ -218,4 +228,6 @@ def check_out(request, address_id: int, address_type: str):
             "total_price": total_price  # Add the total price to the response
         }
     except Exception as e:
-        raise HttpError(status_code=500, detail=str(e))  # Raising the error triggers rollback
+        return {
+            "detail": str(e)
+        }

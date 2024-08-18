@@ -15,9 +15,9 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from ninja import NinjaAPI, Router
-
+import debug_toolbar
 from .authentication import auth_router
 from .item import item_router
 from .order import order_router
@@ -37,4 +37,6 @@ api.add_router("/order", order_router)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/", api.urls),
+    path('__debug__/', include(debug_toolbar.urls))
+
 ]
