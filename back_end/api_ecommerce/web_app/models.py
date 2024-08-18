@@ -28,7 +28,7 @@ class User(AbstractUser):
     one_click_purchasing = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.user.username
+        return self.username
 
 
 class Item(models.Model):
@@ -39,7 +39,7 @@ class Item(models.Model):
     label = models.CharField(choices=LABEL_CHOICES, max_length=1)
     slug = models.SlugField()
     description = models.TextField()
-    image = models.ImageField()
+    image = models.ImageField("image", upload_to="images/")
 
     def __str__(self):
         return self.title
