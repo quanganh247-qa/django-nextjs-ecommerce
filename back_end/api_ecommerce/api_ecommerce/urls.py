@@ -19,8 +19,8 @@ from django.urls import path
 from ninja import NinjaAPI, Router
 
 from .authentication import auth_router
-
-
+from .item import item_router
+from .order import order_router
 api = NinjaAPI()
 
 
@@ -30,6 +30,8 @@ def hello(request):
 
 
 api.add_router("/auth", auth_router)
+api.add_router("/item", item_router)
+api.add_router("/order", order_router)
 
 
 urlpatterns = [
